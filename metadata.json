@@ -1,0 +1,6 @@
+{
+  "name": "스탁 인사이더 (Stock Insider)",
+  "description": "국내 주식 포트폴리오 통계 분석 및 자산 배분 진단 플랫폼",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
