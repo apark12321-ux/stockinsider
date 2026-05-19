@@ -31,42 +31,27 @@ async function startServer() {
 
       const prompt = `
         당신은 대한민국 자본시장법과 자산 배분 이론에 정통한 **초대형 투자은행(IB) 출신의 퀀트 애널리스트**입니다. 
-        사용자가 업로드한 주식 계좌 캡처 이미지(키움, 미래에셋, 삼성, 한국투자, 나무 등 모든 국내 증권사 MTS 화면)에서 데이터를 초정밀하게 추출하고, 워렌 버핏이나 레이 달리오의 원칙을 결합한 고도의 포트폴리오 진단 리포트를 생성하세요.
+        사용자가 업로드한 주식 계좌 캡처 이미지에서 데이터를 **초정밀하게 추출**하고, 모든 종목에 대한 **풀-커버리지(Full Coverage)** 리포트를 생성하세요.
 
-        [데이터 추출 및 보정 가이드]
-        1. **OCR 정밀도 극대화**: 숫자의 콤마(,), 음수 기호(-), 퍼센트(%)를 정확히 판독하십시오. 0과 8, 1과 7 등 혼동하기 쉬운 숫자는 문맥(수익금 = 보유수량 * (현재가 - 평단가))을 고려해 논리적으로 검증하세요.
-        2. **UI 레이아웃 대응**: 증권사마다 종목명, 수익률, 수익금의 위치가 다릅니다. '평가손익', '수익률', '보유수량', '평균단가' 등의 키워드를 찾아 주변 값을 매핑하십시오.
-        3. **통화 처리**: 모든 금액은 원화(KRW) 기준이며, 해외 주식의 경우 원화 환산가액이 있다면 이를 우선 사용하십시오.
+        [데이터 추출 절대 원칙]
+        1. **누락 금지**: 이미지에 흐릿하게라도 보이는 **모든 종목명과 숫자**를 하나도 빠질없이 'holdings' 배열에 담으십시오. 종목이 10개면 10개 모두 분석해야 합니다.
+        2. **수치 정합성**: 종목명, 수익률(%), 수익금, 수량, 평단가를 정확히 매핑하십시오. 숫자가 잘 안 보인다면 앞뒤 문맥과 증권사 UI 특성을 고려해 유추하되, 최대한 정확하게 추출하십시오.
+        3. **-90% 이하 극단적 손실 종목**: 에이프로젠, 풍전약품 등과 같이 상장폐지 위기나 극단적 손실 구간에 있는 종목은 더욱 심층적인 '생존 전략'을 제시하십시오.
+        4. **JSON 수치 규칙**: 모든 숫자 값(수익률, 금액 등)은 순수 숫자로만 작성하십시오. 절대 숫자 앞에 '+' 기호를 붙이지 마십시오. (예: "+15.0" -> 15.0)
 
-        [심층 진단 로직]
-        1. **섹터 분류**: IT(반도체/디스플레이), 모빌리티(배터리/전기차), 바이오, 금융, 소비재, 에너지, 인프라 등으로 정교하게 분류하십시오.
-        2. **위험 평가**: 포트폴리오 분산도, 손실 확대 종목의 비중, 현금 비중 부족 등을 복합적으로 고려하여 0~100점의 '계좌 건강 지수'를 산출하십시오.
-        3. **심리 분석**: 최근 매수(물타기) 흔적이 보이는지, 손절을 못하고 방치된 종목이 있는지 등 투자자의 심리적 상태를 유추하여 부드럽게 조언하십시오.
+        [심층 진단 가이드]
+        - **analysis**: 단순히 상태 요약이 아니라, 해당 종목이 속한 업황, 최근의 수급 동향, 차트상 주요 지지선 및 저항선을 분석하여 **3문장 이상의 전문가급 코멘트**를 작성하십시오.
+        - **strategy**: "보유" 같은 짧은 답변은 금지됩니다. "00원 지지 시 홀딩하되, 반등 시 00원 부근에서 비중 70% 축소"와 같이 **구체적 가격과 실행 수치**를 포함한 '풀-플레지(Full-fledge)' 대응 방안을 제시하십시오.
 
-        [필수 포함 항목]
-        - **summary**: 계좌의 정체성을 한 문장으로 정의 (예: "성장주에 매몰된 고위험 집중 투자형").
-        - **holdings**: 각 종목별로 왜 '주의'인지 '위험군'인지 구체적 수치(예: -30% 이상 낙폭)를 기반으로 상태를 정의하십시오.
-        - **strategy**: 종목별 1:1 맞춤형 액션 플랜. 단순히 '보유'가 아니라 "지지선 00원 이탈 시 비중 50% 축소"와 같은 구체성을 확보하십시오.
-        - **actionPlan**: 당장 실행 가능한 'Trigger' 조건 제시.
-        - **conclusion**: 투자자의 불안을 해소하면서도 냉철한 현실을 직시하게 만드는 전문가의 총평.
-
-        응답은 반드시 아래 JSON 구조의 순수 JSON 텍스트여야 합니다 (마크다운 코드 블록 금지).
-
+        [JSON 구조 필독 - 마크다운 금지]
         {
           "analysisDate": "2026년 5월 19일",
           "summary": {
-            "label": "포트폴리오 성격 (예: 변동성 노출형)",
+            "label": "계좌의 성격을 규정하는 한 줄 제목",
             "score": 0-100,
-            "description": "퀀트 관점의 계좌 상태 심층 요약",
-            "tags": ["섹터 편중", "리스크 관리 부재", "방어주 부족"],
-            "strategyText": "핵심 전략 (예: 현금 비중 30% 확보 및 배당주 스위칭)"
-          },
-          "stats": {
-            "totalProfit": -12000000,
-            "totalYield": -24.5,
-            "sectorConcentration": "특정 섹터 비중 %",
-            "recoveryMonths": 예상 회복 개월수,
-            "riskScore": 0-100
+            "description": "퀀트 관점의 계좌 심화 분석 (최소 200자)",
+            "tags": ["태그1", "태그2", "태그3"],
+            "strategyText": "핵심 운영 전략 (가장 중요)"
           },
           "holdings": [
             {
@@ -75,45 +60,45 @@ async function startServer() {
               "yield": 0.0,
               "quantity": 0,
               "avgPrice": 0,
-              "sector": "정밀 분류 섹터",
+              "sector": "최대한 상세한 섹터 분류",
               "riskLevel": "high|medium|low",
               "status": "수익권|주의|위험군",
-              "analysis": "종목 상태에 대한 전문가급 심층 분석 (수급, 추세 등)",
-              "strategy": "수치 기반의 구체적 대응 수칙",
+              "analysis": "해당 종목에 대한 심층 퀀트 분석 (매우 상세히)",
+              "strategy": "수치와 가격이 포함된 실행 가능한 대응 로직 (매우 상세히)",
               "consensusGap": 0.0
             }
           ],
-          "sectors": [
-            { "name": "섹터명", "percentage": 0 }
-          ],
-          "sectorAnalysisText": "섹터 불균형이 가져올 시나리오별 리스크 분석",
+          "stats": {
+            "totalProfit": 0,
+            "totalYield": 0.0,
+            "sectorConcentration": "전체 비중 %",
+            "recoveryMonths": 0,
+            "riskScore": 0-100
+          },
+          "sectors": [ { "name": "섹터명", "percentage": 0 } ],
+          "sectorAnalysisText": "섹터 비중에 따른 포트폴리오 붕괴 위험도 분석",
           "actionPlan": {
-            "shortTerm": "1차 대응(기계적 매도/매수 점)",
-            "longTerm": "포트폴리오 체질 개선 로드맵"
+            "shortTerm": "즉각적 실행 지침",
+            "longTerm": "중장기 리밸런싱 로드맵"
           },
           "advice": {
-            "step1": { "title": "즉각적 조치", "content": "내용", "items": ["항목1", "항목2"] },
+            "step1": { "title": "즉각 조치", "content": "내용", "items": ["항목1"] },
             "step2": { "title": "비중 재설계", "content": "내용", "recommendation": "권고안" },
-            "step3": { "title": "모니터링 체계", "content": "내용", "plan": ["지침1", "지침2"] }
+            "step3": { "title": "모니터링 체계", "content": "내용", "plan": ["지침1"] }
           },
-          "focusStock": {
-            "name": "가장 시급한 대응 필요 종목",
-            "yield": -45.0,
-            "link": "#"
-          },
-          "conclusion": "전문가 제언 및 격려의 메시지"
+          "conclusion": "투자자에게 전하는 마지막 결론 및 심리적 가이드"
         }
       `;
 
-      const analyzeWithRetry = async (retries = 2) => {
+      const analyzeWithRetry = async (retries = 3) => {
         try {
           const response = await ai.models.generateContent({
-            model: "gemini-flash-latest",
+            model: "gemini-2.0-flash",
             contents: [
               { text: prompt },
               {
                 inlineData: {
-                  mimeType: "image/png",
+                  mimeType: "image/jpeg",
                   data: imageData.split(',')[1] || imageData
                 }
               }
@@ -126,11 +111,19 @@ async function startServer() {
           return response;
         } catch (error: any) {
           const errorMessage = error?.message || "";
-          const isOverloaded = errorMessage.includes("503") || errorMessage.includes("high demand") || errorMessage.includes("UNAVAILABLE") || errorMessage.includes("Too Many Requests");
+          const isRetryable = 
+            errorMessage.includes("500") || 
+            errorMessage.includes("503") || 
+            errorMessage.includes("INTERNAL") || 
+            errorMessage.includes("high demand") || 
+            errorMessage.includes("UNAVAILABLE") || 
+            errorMessage.includes("Too Many Requests");
           
-          if (retries > 0 && isOverloaded) {
-            console.log(`Retrying analysis due to system load... ${retries} retries left`);
-            await new Promise(resolve => setTimeout(resolve, 3000));
+          if (retries > 0 && isRetryable) {
+            console.log(`Retrying analysis due to transient error... (${errorMessage}) ${retries} retries left`);
+            // Exponential backoff
+            const delay = (4 - retries) * 2000;
+            await new Promise(resolve => setTimeout(resolve, delay));
             return analyzeWithRetry(retries - 1);
           }
           throw error;
@@ -138,7 +131,16 @@ async function startServer() {
       };
 
       const response = await analyzeWithRetry();
-      const result = JSON.parse(response.text || "{}");
+      const rawText = response.text || "{}";
+      
+      // Robust JSON Cleaning
+      const cleanedText = rawText
+        .replace(/```json/g, '')
+        .replace(/```/g, '')
+        .replace(/:\s*\+([0-9])/g, ': $1') // Fix for +15.5 type values
+        .trim();
+
+      const result = JSON.parse(cleanedText);
       res.json(result);
     } catch (error: any) {
       console.error("AI Analysis Error:", error);

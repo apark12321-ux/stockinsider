@@ -50,6 +50,9 @@
     --color-risk-red: #EF4444;
     --color-risk-yellow: #F59E0B;
     --color-risk-green: #10B981;
+    --color-hana: #00A48E;
+    --color-hana-light: #E6F6F4;
+    --background-hana: linear-gradient(180deg, #EBE8FF 0%, #FFFFFF 60%, #FFFFFF 100%);
 }
 
 :root {
@@ -126,7 +129,10 @@
     @apply border-border outline-ring/50;
     }
   body {
-    @apply bg-[#F8FAFC] text-slate-900 text-sm antialiased;
+    @apply text-slate-900 text-sm antialiased;
+    background: var(--background-hana);
+    background-attachment: fixed;
+    min-height: 100vh;
     }
   html {
     @apply font-sans;
@@ -135,7 +141,7 @@
 
 @layer utilities {
   .custom-scrollbar::-webkit-scrollbar {
-    width: 4px;
+    width: 6px;
   }
   .custom-scrollbar::-webkit-scrollbar-track {
     @apply bg-transparent;
@@ -143,4 +149,19 @@
   .custom-scrollbar::-webkit-scrollbar-thumb {
     @apply bg-slate-200 rounded-full hover:bg-slate-300 transition-colors;
   }
+  .glass {
+    @apply bg-white/60 backdrop-blur-xl border border-white/40 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)];
+  }
+  .floating-card {
+    @apply rounded-[2rem] sm:rounded-[3rem] shadow-[0_20px_50px_rgba(0,0,0,0.03)] border-none transition-all duration-300;
+  }
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.1); }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
