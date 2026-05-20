@@ -75,6 +75,55 @@ const DUMMY_DATA: DiagnosisResult = {
   conclusion: "현재 계좌는 특정 성장 섹터에 편중된 전형적인 '고립형 포트폴리오'입니다. 단기적인 손실 확정에 대한 두려움을 극복하고, 기계적인 분할 매도를 통해 확보한 현금으로 배당 우량주와 같은 방어적 자산을 단계적으로 편입하는 '계좌 다이어트'가 시급합니다."
 };
 
+const compressAndResizeImage = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        // 세로로 긴 이미지 혹은 고화질 대형 이미지의 최대 기준점 설정
+        // 텍스트(종목명, 수치) 가독성을 보존하기 위한 가로세로 비율 맞춤 압축
+        const maxW = 1200;
+        const maxH = 8000;
+
+        if (width > maxW) {
+          const ratio = maxW / width;
+          width = maxW;
+          height = height * ratio;
+        }
+
+        if (height > maxH) {
+          const ratio = maxH / height;
+          height = maxH;
+          width = width * ratio;
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(event.target?.result as string);
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        // 높은 압축률로 파일 크기를 100~300KB 선으로 줄이되(텍스트 OCR 식별성 극대화 위해 0.82 비율 적용)
+        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.82);
+        resolve(compressedBase64);
+      };
+      img.onerror = (err) => reject(err);
+    };
+    reader.onerror = (err) => reject(err);
+  });
+};
+
 export default function App() {
   const [result, setResult] = useState<DiagnosisResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -88,33 +137,38 @@ export default function App() {
     setError(null);
 
     try {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const base64 = reader.result as string;
+      const base64 = await compressAndResizeImage(file);
+      try {
+        const res = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageData: base64 }),
+        });
+        
+        const rawText = await res.text();
+        let data;
         try {
-          const res = await fetch('/api/analyze', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ imageData: base64 }),
-          });
-          
-          const data = await res.json();
-          if (!res.ok) {
-            setError(data.error || '분석 중 오류가 발생했습니다.');
-            setLoading(false);
-            return;
-          }
-          
-          setResult(data);
+          data = JSON.parse(rawText);
+        } catch (parseError) {
+          setError(`서버 응답 오류 (상태 코드: ${res.status}). 잠시 후 다시 시도해 주세요.`);
           setLoading(false);
-        } catch (err) {
-          setError('네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
-          setLoading(false);
+          return;
         }
-      };
-      reader.readAsDataURL(file);
+        
+        if (!res.ok) {
+          setError(data.error || '분석 중 오류가 발생했습니다.');
+          setLoading(false);
+          return;
+        }
+        
+        setResult(data);
+        setLoading(false);
+      } catch (err: any) {
+        setError(`네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요. (${err?.message || err})`);
+        setLoading(false);
+      }
     } catch (err) {
-      setError('이미지를 읽는 중 오류가 발생했습니다.');
+      setError('이미지를 읽고 압축하는 중 오류가 발생했습니다.');
       setLoading(false);
     }
   };
@@ -123,15 +177,15 @@ export default function App() {
     <div className="min-h-screen font-sans text-slate-900 pb-20 selection:bg-red-600/10 overflow-x-hidden relative">
       {/* Background Blobs */}
       <div className="fixed top-[-10%] right-[-10%] w-[50%] h-[50%] bg-red-500/5 blur-[120px] rounded-full pointer-events-none z-0 animate-pulse-slow"></div>
-      <div className="fixed bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-purple-500/5 blur-[100px] rounded-full pointer-events-none z-0"></div>
+      <div className="fixed bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-slate-500/5 blur-[100px] rounded-full pointer-events-none z-0"></div>
 
       {/* Disclaimer Top */}
-      <div className="bg-white/50 backdrop-blur-sm text-slate-500 py-2.5 px-4 text-center text-[10px] sm:text-xs leading-tight font-medium border-b border-white/20">
+      <div className="bg-white text-slate-500 py-2.5 px-4 text-center text-[10px] sm:text-xs leading-tight font-medium border-b border-slate-100">
         본 서비스는 통계적 데이터 기반 투자 참고 리포트이며, 자본시장법상 특정 종목 권유가 아닙니다.
       </div>
 
       <header className="fixed top-8 left-0 right-0 z-50 px-4">
-        <div className="max-w-7xl mx-auto glass rounded-full h-14 flex items-center justify-between px-6">
+        <div className="max-w-7xl mx-auto glass rounded-2xl h-14 flex items-center justify-between px-6 border border-slate-200">
           <div className="flex items-center gap-3">
             <div className="bg-red-600 p-1.5 rounded-lg shadow-lg shadow-red-500/20 shrink-0">
               <TrendingUp className="w-4 h-4 text-white" />
@@ -170,13 +224,13 @@ export default function App() {
                 <h1 className="text-5xl sm:text-7xl font-black tracking-tighter text-slate-900 leading-[1.05] px-4">
                   내 주식 계좌, <br/><span className="text-red-600">심폐소생</span>이 필요할까?
                 </h1>
-                <p className="text-base sm:text-xl text-slate-600 max-w-2xl mx-auto font-medium opacity-90 leading-relaxed px-6">
+                <p className="text-base sm:text-xl text-slate-500 max-w-2xl mx-auto font-medium opacity-80 leading-relaxed px-6">
                   국내 주식 전문가의 알고리즘으로 내 포트폴리오를 <br className="hidden sm:block"/>
                   객관적이고 냉정하게 분석해 드립니다.
                 </p>
               </div>
 
-              <div className="max-w-xl mx-auto floating-card bg-white group cursor-pointer relative overflow-hidden backdrop-blur-sm border border-white/50">
+              <div className="max-w-xl mx-auto floating-card bg-white group cursor-pointer relative overflow-hidden border border-slate-100">
                 <div className="p-10 sm:p-20 text-center">
                   <input
                     type="file"
@@ -186,9 +240,9 @@ export default function App() {
                     disabled={loading}
                   />
                   <div className="flex flex-col items-center gap-8">
-                    <div className="w-24 h-24 bg-red-50 text-red-600 rounded-[2rem] flex items-center justify-center group-hover:scale-110 group-hover:rotate-6 transition-all duration-500 shadow-xl shadow-red-500/10 relative">
+                    <div className="w-24 h-24 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center group-hover:scale-105 transition-all duration-500 shadow-xl shadow-red-500/5 relative">
                       {loading && (
-                        <div className="absolute inset-0 border-4 border-red-200 border-t-red-600 rounded-[2rem] animate-spin"></div>
+                        <div className="absolute inset-0 border-4 border-red-100 border-t-red-600 rounded-2xl animate-spin"></div>
                       )}
                       {loading ? (
                         <RefreshCcw className="w-10 h-10" />
@@ -198,7 +252,7 @@ export default function App() {
                     </div>
                     <div className="space-y-3">
                       <h3 className="text-2xl sm:text-3xl font-black text-slate-900">계좌 스크린샷 업로드</h3>
-                      <p className="text-slate-600 font-bold opacity-90">MTS 종목 리스트 화면을 캡처해서 올려주세요</p>
+                      <p className="text-slate-500 font-bold opacity-70">MTS 종목 리스트 화면을 캡처해서 올려주세요</p>
                     </div>
                     {loading && (
                       <div className="flex flex-col items-center gap-3">
@@ -215,7 +269,7 @@ export default function App() {
                     )}
                     
                     {error && (
-                      <div className="mt-4 p-5 bg-red-50 border border-red-100 rounded-[2rem] max-w-sm mx-auto shadow-sm">
+                      <div className="mt-4 p-5 bg-red-50 border border-red-100 rounded-2xl max-w-sm mx-auto shadow-sm">
                         <p className="text-xs text-red-600 font-bold mb-4">{error}</p>
                         <div className="flex gap-2 justify-center">
                           <Button 
@@ -258,89 +312,200 @@ export default function App() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center max-w-5xl mx-auto pt-10">
-                <div className="space-y-4 p-8 floating-card bg-white border border-white/50">
+                <div className="space-y-4 p-8 floating-card bg-white border border-slate-100">
                   <div className="bg-red-50 text-red-600 w-14 h-14 rounded-2xl flex items-center justify-center mx-auto shadow-lg shadow-red-500/5">
                     <PieChart className="w-7 h-7" />
                   </div>
                   <h4 className="font-black text-slate-800 text-lg">섹터 과밀집 점검</h4>
-                  <p className="text-sm text-slate-600 font-bold leading-relaxed opacity-90">특정 시장 이슈에 모든 자산이 <br/>흔들리지 않는지 분석합니다.</p>
+                  <p className="text-sm text-slate-500 font-bold leading-relaxed opacity-70">특정 시장 이슈에 모든 자산이 <br/>흔들리지 않는지 분석합니다.</p>
                 </div>
-                <div className="space-y-4 p-8 floating-card bg-white border border-white/50">
+                <div className="space-y-4 p-8 floating-card bg-white border border-slate-100">
                   <div className="bg-red-50 text-red-600 w-14 h-14 rounded-2xl flex items-center justify-center mx-auto shadow-lg shadow-red-500/5">
                     <ShieldAlert className="w-7 h-7" />
                   </div>
                   <h4 className="font-black text-slate-800 text-lg">변동성 리스크 평가</h4>
-                  <p className="text-sm text-slate-600 font-bold leading-relaxed opacity-90">계좌의 표준편차를 낮추는 <br/>자산 배분 구조를 제안합니다.</p>
+                  <p className="text-sm text-slate-500 font-bold leading-relaxed opacity-70">계좌의 표준편차를 낮추는 <br/>자산 배분 구조를 제안합니다.</p>
                 </div>
-                <div className="space-y-4 p-8 floating-card bg-white border border-white/50">
+                <div className="space-y-4 p-8 floating-card bg-white border border-slate-100">
                   <div className="bg-red-50 text-red-600 w-14 h-14 rounded-2xl flex items-center justify-center mx-auto shadow-lg shadow-red-500/5">
                     <TrendingUp className="w-7 h-7" />
                   </div>
                   <h4 className="font-black text-slate-800 text-lg">데이터 매칭 시스템</h4>
-                  <p className="text-sm text-slate-600 font-bold leading-relaxed opacity-90">실시간 시장 데이터와 내 계좌의 <br/>괴리율을 세밀하게 분석합니다.</p>
+                  <p className="text-sm text-slate-500 font-bold leading-relaxed opacity-70">실시간 시장 데이터와 내 계좌의 <br/>괴리율을 세밀하게 분석합니다.</p>
                 </div>
               </div>
             </motion.div>
           ) : (
-            <motion.div
+          <motion.div
               key="dashboard"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="flex flex-col lg:flex-row gap-8 min-h-[calc(100vh-240px)] lg:h-[calc(100vh-240px)] overflow-visible lg:overflow-hidden pb-12"
+              className="space-y-12 pb-24 max-w-4xl mx-auto"
             >
-              {/* Sidebar: Summary & Holdings */}
-              <aside className="w-full lg:w-[360px] xl:w-[420px] flex flex-col gap-6 flex-shrink-0 overflow-visible lg:overflow-y-auto pr-0 lg:pr-2 custom-scrollbar">
-                <section className="floating-card p-8 flex flex-col gap-8 bg-white border border-white/50">
-                  <div className="flex flex-wrap gap-2">
-                    {result.summary.tags.map((tag, idx) => (
-                      <Badge key={idx} variant="secondary" className={cn(
-                        "text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-tighter",
-                        tag === "분석일" ? "bg-slate-100 text-slate-400" : "bg-red-50 text-red-600"
-                      )}>
-                        {tag === "분석일" ? `${tag} ${result.analysisDate}` : tag}
-                      </Badge>
-                    ))}
+              {/* 1. Executive Summary Section */}
+              <section className="floating-card p-10 sm:p-16 flex flex-col gap-10 bg-white border border-slate-100">
+                <div className="flex flex-wrap gap-2">
+                  {result.summary.tags.map((tag, idx) => (
+                    <Badge key={idx} variant="secondary" className={cn(
+                      "text-[10px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest",
+                      tag === "분석일" ? "bg-slate-100 text-slate-400" : "bg-red-50 text-red-600"
+                    )}>
+                      {tag === "분석일" ? `${tag} ${result.analysisDate}` : tag}
+                    </Badge>
+                  ))}
+                </div>
+                <div className="space-y-6">
+                  <h2 className="text-xs font-black text-slate-500 uppercase tracking-[0.3em]">Executive Summary</h2>
+                  <div className="text-slate-900 font-black text-4xl sm:text-6xl tracking-tighter leading-[1.1]">
+                    {result.summary.label}
                   </div>
-                  <div className="space-y-4">
-                    <h2 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em] mb-2">Current Diagnosis</h2>
-                    <div className="text-slate-900 font-black text-3xl sm:text-4xl tracking-tighter leading-tight">
-                      {result.summary.label}
+                  <p className="text-slate-600 text-lg sm:text-xl leading-relaxed font-bold opacity-90">
+                    {result.summary.description}
+                  </p>
+                </div>
+
+                {/* Quick Stats Grid */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-6 pt-6">
+                  <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                    <div className="text-[10px] font-black text-slate-400 uppercase mb-2">총 손익</div>
+                    <div className={cn("text-xl font-black tracking-tighter", result.stats.totalProfit < 0 ? "text-red-600" : "text-emerald-600")}>
+                      {result.stats.totalProfit.toLocaleString()}원
                     </div>
-                    <p className="text-slate-600 text-[15px] leading-relaxed font-semibold">
-                      {result.summary.description}
-                    </p>
                   </div>
-                </section>
-                  
-                <section className="floating-card p-8 flex flex-col gap-6 bg-white border border-white/50">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em]">Holdings Indicators</h2>
-                    <Badge variant="ghost" className="text-[10px] font-black p-0 text-slate-500">{result.holdings.length} Positions</Badge>
+                  <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                    <div className="text-[10px] font-black text-slate-400 uppercase mb-2">분석 수익률</div>
+                    <div className={cn("text-xl font-black tracking-tighter", result.stats.totalYield < 0 ? "text-red-600" : "text-emerald-600")}>
+                      {result.stats.totalYield}%
+                    </div>
                   </div>
-                  <div className="space-y-4">
-                    {result.holdings.map((holding, index) => {
-                      const sectorIndex = result.sectors.findIndex(s => s.name === holding.sector);
-                      const sectorColor = sectorIndex !== -1 ? COLORS[sectorIndex % COLORS.length] : '#DC2626';
-                      
-                      return (
-                        <div key={`${holding.name}-${index}`} className="p-6 bg-white rounded-[1.5rem] border border-slate-100 transition-all hover:translate-x-1 relative group overflow-hidden shadow-sm">
-                          <div className="absolute top-0 bottom-0 left-0 w-2" style={{ backgroundColor: sectorColor }}></div>
-                          <div className="flex justify-between items-start gap-4">
-                            <div className="flex-1 min-w-0">
-                              <span className="font-black text-lg block truncate text-slate-900">{holding.name}</span>
-                              <span className="text-[11px] text-slate-500 font-bold block mt-2 uppercase tracking-wide">
-                                {holding.sector} · 평단 {holding.avgPrice.toLocaleString()}원
-                              </span>
+                  <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                    <div className="text-[10px] font-black text-slate-400 uppercase mb-2">섹터 집중도</div>
+                    <div className="text-xl font-black tracking-tighter text-slate-800">{result.stats.sectorConcentration}</div>
+                  </div>
+                  <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                    <div className="text-[10px] font-black text-slate-400 uppercase mb-2">위험 점수</div>
+                    <div className="text-xl font-black tracking-tighter text-red-600">{result.stats.riskScore}/100</div>
+                  </div>
+                </div>
+              </section>
+
+              {/* 2. Visual Analysis (Charts) */}
+              <div className="grid grid-cols-1 gap-8">
+                 <div className="floating-card flex flex-col bg-white border border-slate-100 overflow-hidden">
+                  <div className="px-10 py-8 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+                    <div className="text-xs font-black text-slate-500 uppercase tracking-[0.2em] flex items-center gap-2">
+                       <PieChart className="w-4 h-4 text-red-600" /> Sector Concentration
+                    </div>
+                    <Badge variant="ghost" className="text-[10px] font-black text-red-600 animate-pulse">Distribution Analysis</Badge>
+                  </div>
+                  <CardContent className="p-10 sm:p-16 flex flex-col lg:flex-row items-center justify-between gap-12">
+                    <div className="w-full lg:w-1/2 h-72 relative">
+                       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                          <div className="bg-slate-50/50 p-6 rounded-2xl border border-slate-100 flex flex-col justify-center shadow-inner text-center">
+                            <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest leading-none mb-3">Main Sector</div>
+                            <div className="text-2xl font-black text-slate-800">{result.sectors[0].percentage}%</div>
+                          </div>
+                       </div>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <RePieChart>
+                          <Pie
+                            data={result.sectors}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={80}
+                            outerRadius={110}
+                            paddingAngle={8}
+                            dataKey="percentage"
+                            stroke="none"
+                          >
+                            {result.sectors.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip />
+                        </RePieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="w-full lg:w-1/2 space-y-8">
+                      <div className="grid grid-cols-2 gap-x-12 gap-y-6">
+                        {result.sectors.map((sector, index) => (
+                          <div key={sector.name} className="flex items-center justify-between text-sm font-black text-slate-600">
+                            <div className="flex items-center gap-4">
+                              <span className="w-2.5 h-2.5 rounded-full shadow-lg" style={{ backgroundColor: COLORS[index % COLORS.length] }}></span>
+                              <span>{sector.name}</span>
                             </div>
-                            <div className="text-right shrink-0">
-                              <span className={cn(
-                                "text-lg font-black block tracking-tighter",
-                                holding.yield < 0 ? "text-red-600" : "text-emerald-600"
-                              )}>
-                                {holding.yield > 0 ? '+' : ''}{holding.yield}%
-                              </span>
+                            <span className="text-slate-900 text-base">{sector.percentage}%</span>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-base text-slate-700 font-bold leading-relaxed pt-10 border-t border-slate-100 italic break-keep opacity-80">
+                        {result.sectorAnalysisText}
+                      </p>
+                    </div>
+                  </CardContent>
+                </div>
+              </div>
+
+              {/* 3. Holdings Quick List */}
+              <section className="space-y-6">
+                <div className="flex items-center gap-4 px-4">
+                  <div className="w-1.5 h-6 bg-red-600 rounded-full"></div>
+                  <h2 className="text-lg font-black text-slate-800 tracking-tighter uppercase">Portfolio Snapshot</h2>
+                  <span className="text-xs font-black text-slate-400 ml-auto">{result.holdings.length} Assets Identified</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {result.holdings.map((holding, index) => {
+                    const sectorIndex = result.sectors.findIndex(s => s.name === holding.sector);
+                    const sectorColor = sectorIndex !== -1 ? COLORS[sectorIndex % COLORS.length] : '#DC2626';
+                    
+                    return (
+                      <div key={`${holding.name}-${index}`} className="p-6 bg-white rounded-2xl border border-slate-100 transition-all hover:bg-slate-50 relative group overflow-hidden shadow-sm">
+                        <div className="absolute top-0 bottom-0 left-0 w-1.5" style={{ backgroundColor: sectorColor }}></div>
+                        <div className="flex flex-col gap-4">
+                          <div className="flex justify-between items-start">
+                            <span className="font-black text-lg text-slate-900 block truncate">{holding.name}</span>
+                            <Badge className={cn(
+                              "text-[9px] font-black px-2 py-0.5 rounded-full uppercase",
+                              holding.status === '위험군' ? "bg-red-600 text-white" :
+                              holding.status === '주의' ? "bg-amber-500 text-white" :
+                              "bg-emerald-600 text-white"
+                            )}>
+                              {holding.status}
+                            </Badge>
+                          </div>
+                          <div className="flex justify-between items-end">
+                            <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">{holding.sector}</span>
+                            <span className={cn(
+                              "text-xl font-black tracking-tighter",
+                              holding.yield < 0 ? "text-red-600" : "text-emerald-600"
+                            )}>
+                              {holding.yield > 0 ? '+' : ''}{holding.yield}%
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+
+              {/* 4. Deep Analysis Feed */}
+              <div className="space-y-10">
+                <div className="flex items-center gap-4 px-4">
+                  <div className="w-1.5 h-6 bg-red-600 rounded-full"></div>
+                  <h2 className="text-lg font-black text-slate-800 tracking-tighter uppercase">Deep Intelligence Feed</h2>
+                </div>
+                
+                <div className="space-y-8">
+                  {result.holdings.map((holding, idx) => (
+                    <div key={`${holding.name}-deep-${idx}`} className="floating-card overflow-hidden bg-white border border-slate-100 group">
+                      <div className="p-8 sm:p-16 space-y-12">
+                        <div className="flex flex-col sm:flex-row justify-between items-start gap-10 border-b border-slate-100 pb-12">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-4 flex-wrap mb-4">
+                              <h4 className="text-3xl sm:text-5xl font-black text-slate-900 group-hover:text-red-600 transition-colors tracking-tighter uppercase">{holding.name}</h4>
                               <Badge className={cn(
-                                "text-[9px] font-black px-2 py-0.5 rounded-full mt-2 uppercase tracking-tighter",
+                                "text-xs font-black px-5 py-1.5 rounded-full shadow-md uppercase tracking-widest",
                                 holding.status === '위험군' ? "bg-red-600 text-white" :
                                 holding.status === '주의' ? "bg-amber-500 text-white" :
                                 "bg-emerald-600 text-white"
@@ -348,299 +513,132 @@ export default function App() {
                                 {holding.status}
                               </Badge>
                             </div>
+                            <span className="text-xs font-black text-slate-500 tracking-[0.2em] uppercase">{holding.sector || '기타 섹터'} · {holding.quantity.toLocaleString()}주 보유</span>
+                          </div>
+                          <div className="text-left sm:text-right shrink-0 w-full sm:w-auto p-8 sm:p-10 bg-slate-50 rounded-3xl shadow-inner border border-slate-100">
+                            <div className={cn(
+                              "text-5xl sm:text-7xl font-black tracking-tighter leading-none mb-4",
+                              holding.yield < 0 ? "text-red-600" : "text-emerald-600"
+                            )}>
+                              {holding.yield > 0 ? '+' : ''}{holding.yield}%
+                            </div>
+                            <div className="text-sm sm:text-xl font-bold text-slate-400 tracking-tight">
+                              평단 {holding.avgPrice.toLocaleString()}원 · 손익 {holding.profit.toLocaleString()}원
+                            </div>
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                </section>
-              </aside>
 
-              {/* Main Content Area: Detailed Diagnosis & Stats */}
-              <div className="flex-1 flex flex-col gap-8 h-auto lg:h-full lg:overflow-y-auto pr-0 lg:pr-4 custom-scrollbar">
-                {/* Individual Stock Diagnosis Report */}
-                <div className="space-y-8 h-auto">
-                  <div className="flex items-center justify-between px-4">
-                    <div className="flex items-center gap-4">
-                      <div className="w-2 h-8 bg-red-600 rounded-full shadow-lg shadow-red-600/20"></div>
-                      <h2 className="text-lg sm:text-xl font-black text-slate-800 tracking-tighter">
-                        전 종목별 초정밀 대응 지침
-                      </h2>
-                    </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 gap-8">
-                    {result.holdings.map((holding, idx) => (
-                      <div key={`${holding.name}-deep-${idx}`} className="floating-card overflow-hidden bg-white border border-white/50 group">
-                        <div className="p-10 sm:p-14 space-y-10">
-                          <div className="flex flex-col sm:flex-row justify-between items-start gap-8 border-b border-white/20 pb-10">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-5 flex-wrap">
-                                <h4 className="text-3xl sm:text-4xl font-black text-slate-900 group-hover:text-red-600 transition-colors tracking-tighter uppercase mb-4 sm:mb-0">{holding.name}</h4>
-                                <Badge className={cn(
-                                  "text-xs font-black px-5 py-1.5 rounded-full shadow-md uppercase tracking-widest",
-                                  holding.status === '위험군' ? "bg-red-600 text-white" :
-                                  holding.status === '주의' ? "bg-amber-500 text-white" :
-                                  "bg-emerald-600 text-white"
-                                )}>
-                                  {holding.status}
-                                </Badge>
-                              </div>
-                              <span className="text-xs font-black text-slate-500 mt-4 block tracking-[0.2em] uppercase">{holding.sector || '기타 섹터'}</span>
+                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-16">
+                          <div className="space-y-8">
+                            <div className="text-xs font-black text-slate-500 flex items-center gap-3 uppercase tracking-[0.2em]">
+                              <div className="w-1.5 h-1.5 bg-red-600 rounded-full animate-pulse"></div> Quant Analysis
                             </div>
-                            <div className="text-left sm:text-right shrink-0 w-full sm:w-auto p-8 bg-white rounded-[2.5rem] shadow-inner border border-slate-50">
-                              <div className={cn(
-                                "text-5xl sm:text-6xl font-black tracking-tighter leading-none mb-3",
-                                holding.yield < 0 ? "text-red-600" : "text-emerald-600"
-                              )}>
-                                {holding.yield > 0 ? '+' : ''}{holding.yield}%
-                              </div>
-                              <div className="text-sm sm:text-xl font-bold text-slate-400 tracking-tight">
-                                {holding.profit.toLocaleString()}원 평가손익
-                              </div>
-                            </div>
+                            <p className="text-lg sm:text-xl text-slate-600 leading-relaxed font-semibold opacity-90">
+                              {holding.analysis}
+                            </p>
                           </div>
- 
-                          <div className="grid grid-cols-1 xl:grid-cols-2 gap-12 pt-4">
-                            {/* Detailed Analysis */}
-                            <div className="space-y-6">
-                              <div className="text-xs font-black text-slate-500 flex items-center gap-3 uppercase tracking-[0.2em]">
-                                <div className="w-1.5 h-1.5 bg-red-600 rounded-full animate-pulse"></div> Quant Intelligence
-                              </div>
-                              <p className="text-base sm:text-lg text-slate-700 leading-relaxed font-semibold">
-                                {holding.analysis || "분석 데이터를 읽을 수 없습니다."}
-                              </p>
+
+                          <div className="bg-red-50 p-10 sm:p-16 rounded-3xl border border-red-100 shadow-inner relative overflow-hidden h-auto group/strategy">
+                            <div className="absolute -top-10 -right-10 p-4 opacity-5 group-hover/strategy:scale-125 transition-transform duration-1000">
+                              <ShieldAlert className="w-48 h-48 text-red-600" />
                             </div>
- 
-                            {/* Precise Strategy */}
-                            <div className="bg-red-50 p-10 sm:p-12 rounded-[2.5rem] border border-red-100 shadow-inner relative overflow-hidden h-auto group/strategy">
-                              <div className="absolute -top-6 -right-6 p-4 opacity-5 group-hover/strategy:scale-125 transition-transform duration-700">
-                                <ShieldAlert className="w-32 h-32 text-red-600" />
-                              </div>
-                              <div className="text-xs font-black text-red-600 mb-6 flex items-center gap-3 uppercase tracking-[0.2em]">
-                                <RefreshCcw className="w-4 h-4 animate-spin-slow" /> Action Protocol
-                              </div>
-                              <p className="text-xl sm:text-2xl text-slate-950 leading-relaxed font-black italic">
-                                "{holding.strategy}"
-                              </p>
-                              <div className="mt-10 flex gap-3 flex-wrap">
-                                <Badge variant="secondary" className="text-[10px] bg-white text-red-600 border-none font-black px-4 py-1.5 rounded-full shadow-sm">AVG {holding.avgPrice.toLocaleString()}W</Badge>
-                                <Badge variant="secondary" className="text-[10px] bg-white text-red-600 border-none font-black px-4 py-1.5 rounded-full shadow-sm">{holding.quantity} Shares</Badge>
-                                <Badge variant="secondary" className="text-[10px] bg-white text-red-600 border-none font-black px-4 py-1.5 rounded-full shadow-sm">GAP {holding.consensusGap}%</Badge>
-                              </div>
+                            <div className="text-xs font-black text-red-600 mb-8 flex items-center gap-3 uppercase tracking-[0.3em]">
+                              <RefreshCcw className="w-4 h-4 animate-spin-slow" /> Strategic Action
+                            </div>
+                            <p className="text-2xl sm:text-3xl text-slate-900 leading-[1.35] font-black italic">
+                              "{holding.strategy}"
+                            </p>
+                            <div className="mt-12 flex gap-3 flex-wrap">
+                              <Badge variant="secondary" className="text-[10px] bg-white text-red-600 border-none font-black px-5 py-2 rounded-full shadow-sm uppercase">Gap {holding.consensusGap}%</Badge>
+                              <Badge variant="secondary" className="text-[10px] bg-white text-red-600 border-none font-black px-5 py-2 rounded-full shadow-sm uppercase">Active Tracking</Badge>
                             </div>
                           </div>
                         </div>
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
                 </div>
-
-                {/* Statistics and Simulation - Secondary Priority */}
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 h-auto">
-                   {/* Chart Card */}
-                   <div className="floating-card flex flex-col min-h-[500px] bg-white border border-white/50 overflow-hidden">
-                    <div className="px-12 py-10 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
-                      <h2 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em]">Sector Concentration</h2>
-                      <Badge variant="ghost" className="text-[10px] font-black text-red-600 animate-pulse">Live Distribution</Badge>
-                    </div>
-                    <CardContent className="p-12 flex-1 flex flex-col items-center justify-between gap-12">
-                      <div className="w-full h-72 relative">
-                         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="bg-white p-6 rounded-[2rem] border border-slate-50 flex flex-col justify-center shadow-inner">
-                      <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest leading-none mb-3">Main Sector</div>
-                      <div className="text-2xl font-black text-slate-800">{result.sectors[0].percentage}%</div>
-                    </div>
-                         </div>
-                        <ResponsiveContainer width="100%" height="100%">
-                          <RePieChart>
-                            <Pie
-                              data={result.sectors}
-                              cx="50%"
-                              cy="50%"
-                              innerRadius={90}
-                              outerRadius={120}
-                              paddingAngle={8}
-                              dataKey="percentage"
-                              stroke="none"
-                            >
-                              {result.sectors.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                              ))}
-                            </Pie>
-                            <Tooltip />
-                          </RePieChart>
-                        </ResponsiveContainer>
-                      </div>
-                      <div className="w-full space-y-8">
-                        <div className="grid grid-cols-2 gap-x-12 gap-y-6">
-                          {result.sectors.map((sector, index) => (
-                            <div key={sector.name} className="flex items-center justify-between text-sm font-black text-slate-600">
-                              <div className="flex items-center gap-4">
-                                <span className="w-2.5 h-2.5 rounded-full shadow-lg" style={{ backgroundColor: COLORS[index % COLORS.length] }}></span>
-                                <span>{sector.name}</span>
-                              </div>
-                              <span className="text-slate-900 text-base">{sector.percentage}%</span>
-                            </div>
-                          ))}
-                        </div>
-                        <p className="text-sm text-slate-700 font-bold leading-relaxed pt-10 border-t border-slate-100 italic break-keep">
-                          {result.sectorAnalysisText}
-                        </p>
-                      </div>
-                    </CardContent>
-                  </div>
-
-                  {/* Simulation Card */}
-                  <div className="floating-card p-12 flex flex-col min-h-[500px] relative overflow-hidden bg-slate-950 shadow-2xl group shadow-slate-950/20">
-                    <div className="flex items-center gap-5 mb-12 relative z-10">
-                      <div className="w-3 h-8 bg-red-600 rounded-full shadow-[0_0_15px_rgba(220,38,38,0.6)]"></div>
-                      <h3 className="text-xs font-black text-white/70 uppercase tracking-[0.2em]">Asset Simulation</h3>
-                      <Badge className="text-xs font-black ml-auto border-white/20 text-white/60 px-6 py-2.5 rounded-full uppercase bg-white/10 backdrop-blur-md tracking-widest">Monte Carlo v.4</Badge>
-                    </div>
-                    
-                    <div className="flex-1 bg-white/5 rounded-[3rem] relative overflow-hidden border border-white/5 pt-24 pb-8 mb-4">
-                      <div className="absolute -top-40 -left-40 w-96 h-96 bg-red-600/10 blur-[150px] rounded-full group-hover:bg-red-600/20 transition-all duration-1000"></div>
-                      
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={[
-                          { x: 0, y: 35, y2: 35 },
-                          { x: 1, y: 38, y2: 35 },
-                          { x: 2, y: 33, y2: 34 },
-                          { x: 3, y: 22, y2: 33 },
-                          { x: 4, y: 12, y2: 33 },
-                          { x: 5, y: 2, y2: 32 },
-                        ]} margin={{ top: 20, right: 40, left: 20, bottom: 20 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#ffffff" vertical={false} opacity={0.05} />
-                          <Line 
-                            type="monotone" 
-                            dataKey="y" 
-                            stroke="#00A48E" 
-                            strokeWidth={10} 
-                            dot={{ fill: '#00A48E', r: 8, strokeWidth: 4, stroke: '#020617' }} 
-                            activeDot={{ r: 12, strokeWidth: 0 }}
-                            strokeDasharray="15 10" 
-                            animationDuration={4000}
-                          />
-                          <Line 
-                            type="monotone" 
-                            dataKey="y2" 
-                            stroke="#475569" 
-                            strokeWidth={6} 
-                            dot={false} 
-                            opacity={0.4}
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                      
-                      <div className="absolute top-10 left-12 flex flex-col sm:flex-row gap-12 z-10">
-                        <div className="flex items-center gap-5">
-                          <div className="flex flex-col">
-                            <div className="flex items-center gap-4 text-xs font-black text-red-600 tracking-wider">
-                              <span className="w-10 h-2.5 bg-red-600 inline-block rounded-full shadow-[0_0_25px_rgba(220,38,38,1)] animate-pulse"></span>
-                              <span>AI Rebalancing</span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-5">
-                          <div className="flex flex-col">
-                            <div className="flex items-center gap-4 text-xs font-black text-white/60 tracking-wider">
-                              <span className="w-10 h-2.5 bg-white/20 inline-block rounded-full"></span>
-                              <span>Default Hold</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 3 Step Guide */}
-                <div className="floating-card p-12 sm:p-16 flex flex-col gap-12 bg-white border border-white/50">
-                  <h3 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em] px-2 text-center sm:text-left">AI Asset Rebalancing Roadmap</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
-                    <div className="flex flex-col bg-red-50 rounded-[3rem] p-10 sm:p-12 border border-red-100 shadow-sm transition-all hover:bg-red-100/50">
-                      <div className="flex items-center gap-6 mb-10">
-                        <span className="w-14 h-14 rounded-3xl bg-red-600 text-white flex items-center justify-center text-xl font-black shadow-xl shadow-red-200 shrink-0">1</span>
-                        <span className="font-black text-red-900 text-lg leading-tight uppercase tracking-tighter">{result.advice.step1.title}</span>
-                      </div>
-                      <p className="text-sm sm:text-base text-red-700 leading-relaxed font-bold mb-12 opacity-80">
-                        {result.advice.step1.content}
-                      </p>
-                      <div className="mt-auto space-y-4">
-                        {result.advice.step1.items.map((item, idx) => (
-                          <div key={idx} className="flex justify-between items-center bg-white p-5 rounded-2xl border border-red-100 shadow-sm group/item">
-                            <span className="text-xs font-black text-red-800">{item}</span>
-                            <AlertCircle className="w-4 h-4 text-red-400 group-hover/item:text-red-600 transition-colors" />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col bg-amber-50 rounded-[3rem] p-10 sm:p-12 border border-amber-100 shadow-sm transition-all hover:bg-amber-100/50">
-                      <div className="flex items-center gap-6 mb-10">
-                        <span className="w-14 h-14 rounded-3xl bg-amber-500 text-white flex items-center justify-center text-xl font-black shadow-xl shadow-amber-200 shrink-0">2</span>
-                        <span className="font-black text-amber-900 text-lg leading-tight uppercase tracking-tighter">{result.advice.step2.title}</span>
-                      </div>
-                      <p className="text-sm sm:text-base text-amber-700 leading-relaxed font-bold mb-12 opacity-80">
-                        {result.advice.step2.content}
-                      </p>
-                      <div className="mt-auto p-6 bg-white rounded-[2rem] border border-amber-100 shadow-sm text-center">
-                        <div className="text-lg font-black text-amber-600 tracking-tight">{result.advice.step2.recommendation}</div>
-                        <div className="text-[9px] font-black text-amber-400 mt-2 uppercase tracking-widest leading-none">Protective Stance Recommended</div>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col bg-red-50/50 rounded-[3rem] p-10 sm:p-12 border border-red-100/30 shadow-sm transition-all hover:bg-red-100/60">
-                      <div className="flex items-center gap-6 mb-10">
-                        <span className="w-14 h-14 rounded-3xl bg-red-600 text-white flex items-center justify-center text-xl font-black shadow-xl shadow-red-200 shrink-0">3</span>
-                        <span className="font-black text-red-900 text-lg leading-tight uppercase tracking-tighter">{result.advice.step3.title}</span>
-                      </div>
-                      <p className="text-sm sm:text-base text-red-700 leading-relaxed font-bold mb-12 opacity-80">
-                        {result.advice.step3.content}
-                      </p>
-                      <div className="mt-auto flex flex-col gap-4">
-                        {result.advice.step3.plan.map((p, idx) => (
-                          <div key={idx} className="bg-white p-5 rounded-2xl border border-red-100 shadow-sm flex items-center justify-between group/plan">
-                            <span className="text-xs font-black text-red-600">{p}</span>
-                            <TrendingUp className="w-4 h-4 text-red-400 opacity-40 group-hover/plan:opacity-100 transition-opacity" />
-                          </div>
-                        ))}
-                        <div className="flex flex-wrap gap-2 mt-6">
-                          <Badge variant="outline" className="text-[9px] bg-white border-red-100 text-red-600 font-black px-4 py-1.5 rounded-full uppercase tracking-tighter shadow-sm">Regular</Badge>
-                          <Badge variant="outline" className="text-[9px] bg-white border-red-100 text-red-600 font-black px-4 py-1.5 rounded-full uppercase tracking-tighter shadow-sm">Divided</Badge>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Final Conclusion */}
-                {result.conclusion && (
-                    <div className="floating-card bg-[#0f172a] p-12 sm:p-20 relative overflow-hidden group shadow-2xl shadow-slate-950/40">
-                    <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-red-600 via-red-500 to-slate-900"></div>
-                    <div className="absolute -bottom-20 -right-20 w-96 h-96 bg-red-600/10 blur-[150px] rounded-full group-hover:bg-red-600/20 transition-all duration-1000"></div>
-                    <div className="absolute top-0 left-0 p-12 opacity-5">
-                       <ShieldAlert className="w-40 h-40 text-white" />
-                    </div>
-                    <h3 className="text-[12px] font-black text-red-600 uppercase tracking-[0.4em] mb-12 flex items-center gap-4 relative z-10">
-                      <div className="w-3 h-3 bg-red-600 rounded-full animate-ping"></div> Intelligence Verdict
-                    </h3>
-                    <p className="text-2xl sm:text-5xl font-black text-white leading-tight break-words relative z-10 tracking-tight drop-shadow-xl">
-                      "{result.conclusion}"
-                    </p>
-                  </div>
-                )}
-
-                <footer className="pt-20 pb-32 text-slate-500 text-[10px] leading-relaxed text-center max-w-4xl mx-auto italic font-black uppercase tracking-widest space-y-12">
-                  <p className="break-keep opacity-60 px-10 leading-loose">
-                    This report provided by AI Stock Insider is based on institutional data and statistical algorithms. It is not an invitation to invest in specific stocks. All investment decisions are the sole responsibility of the user.
-                  </p>
-                  <p className="opacity-20 text-[9px]">
-                    Analysis CPR System v2.0 · Professional Quant Engine · Developed for Modern Portfolios
-                  </p>
-                </footer>
               </div>
+
+              {/* 5. Roadmap Section */}
+              <div className="floating-card p-12 sm:p-20 flex flex-col gap-16 bg-white border border-slate-100">
+                <div className="space-y-4">
+                  <h3 className="text-xs font-black text-slate-500 uppercase tracking-[0.3em] text-center sm:text-left">Precision Roadmap</h3>
+                  <h2 className="text-3xl sm:text-5xl font-black text-slate-900 tracking-tighter leading-tight text-center sm:text-left">AI Asset Rebalancing Protocol</h2>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
+                  {[result.advice.step1, result.advice.step2, result.advice.step3].map((step, idx) => (
+                    <div key={idx} className={cn(
+                      "flex flex-col rounded-3xl p-10 sm:p-12 border shadow-sm transition-all",
+                      idx === 0 ? "bg-red-50 border-red-100 hover:bg-red-100/50" :
+                      idx === 1 ? "bg-slate-50 border-slate-100 hover:bg-slate-100/50" :
+                      "bg-red-50/50 border-red-100/30 hover:bg-red-50/80"
+                    )}>
+                      <div className="flex items-center gap-6 mb-10">
+                        <span className={cn(
+                          "w-16 h-16 rounded-2xl flex items-center justify-center text-2xl font-black shadow-xl shrink-0",
+                          idx === 1 ? "bg-slate-600 text-white" : "bg-red-600 text-white shadow-red-500/10"
+                        )}>{idx + 1}</span>
+                        <span className="font-black text-slate-800 text-xl leading-tight uppercase tracking-tighter">{(step as any).title}</span>
+                      </div>
+                      <p className="text-base text-slate-500 leading-relaxed font-semibold mb-12 opacity-80">
+                        {(step as any).content}
+                      </p>
+                      
+                      <div className="mt-auto space-y-4">
+                         {(step as any).items?.map((item: string, i: number) => (
+                           <div key={i} className="flex justify-between items-center bg-white p-5 rounded-2xl border border-slate-100 shadow-sm group/item">
+                              <span className="text-xs font-black text-slate-600">{item}</span>
+                              <AlertCircle className="w-4 h-4 text-red-500 group-hover/item:text-red-600 transition-colors" />
+                           </div>
+                         ))}
+                         {(step as any).recommendation && (
+                            <div className="p-8 bg-white rounded-2xl border border-slate-100 shadow-sm text-center">
+                              <div className="text-xl font-black text-slate-600 tracking-tight">{(step as any).recommendation}</div>
+                              <div className="text-[10px] font-black text-slate-400 mt-3 uppercase tracking-[0.2em] leading-none opacity-60">High Priority Action</div>
+                            </div>
+                         )}
+                         {(step as any).plan?.map((p: string, i: number) => (
+                           <div key={i} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between group/plan">
+                              <span className="text-xs font-black text-red-600">{p}</span>
+                              <TrendingUp className="w-4 h-4 text-red-400 opacity-40 group-hover/plan:opacity-100 transition-opacity" />
+                           </div>
+                         ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 6. Professional Verdict */}
+              {result.conclusion && (
+                 <div className="floating-card bg-slate-900 p-12 sm:p-24 relative overflow-hidden group shadow-2xl shadow-slate-900/40">
+                  <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-red-600 via-red-400 to-slate-900"></div>
+                  <div className="absolute -bottom-20 -right-20 w-[40rem] h-[40rem] bg-red-600/10 blur-[150px] rounded-full group-hover:bg-red-600/20 transition-all duration-1000"></div>
+                  <div className="absolute top-0 left-0 p-16 opacity-5">
+                     <ShieldAlert className="w-64 h-64 text-white" />
+                  </div>
+                  <h3 className="text-[12px] font-black text-red-600 uppercase tracking-[0.4em] mb-12 flex items-center gap-6 relative z-10">
+                    <div className="w-3 h-3 bg-red-600 rounded-full animate-ping"></div> Intelligence Consensus
+                  </h3>
+                  <p className="text-3xl sm:text-6xl font-black text-white leading-[1.15] break-words relative z-10 tracking-tighter drop-shadow-2xl">
+                    "{result.conclusion}"
+                  </p>
+                </div>
+              )}
+
+              <footer className="pt-24 pb-32 text-slate-500 text-[11px] leading-loose text-center max-w-4xl mx-auto italic font-black uppercase tracking-[0.2em] space-y-12 border-t border-slate-100/50 mt-12">
+                <p className="break-keep opacity-60 px-10">
+                  This analysis CPR system utilizes statistical probability models for simulation purposes. Stock Insider does not guarantee specific returns, and financial markets carry inherent liquidity risks. Professional consultation is recommended for high-NAV portfolios.
+                </p>
+                <div className="flex flex-col items-center gap-4 opacity-30">
+                  <TrendingUp className="w-6 h-6" />
+                  <p className="text-[10px]">
+                    Analysis CPR System v2.0 · Professional Quant Engine
+                  </p>
+                </div>
+              </footer>
             </motion.div>
           )}
         </AnimatePresence>
