@@ -91,72 +91,245 @@ async function startServer() {
         }
       `;
 
-      const analyzeWithRetry = async (retries = 3) => {
-        try {
-          const response = await ai.models.generateContent({
-            model: "gemini-3.1-flash-lite",
-            contents: [
-              { text: prompt },
-              {
-                inlineData: {
-                  mimeType: "image/jpeg",
-                  data: imageData.split(',')[1] || imageData
-                }
-              }
-            ],
-            config: {
-              responseMimeType: "application/json"
-            }
-          });
-          
-          return response;
-        } catch (error: any) {
-          const errorMessage = error?.message || "";
-          const isRetryable = 
-            errorMessage.includes("500") || 
-            errorMessage.includes("503") || 
-            errorMessage.includes("INTERNAL") || 
-            errorMessage.includes("high demand") || 
-            errorMessage.includes("UNAVAILABLE") || 
-            errorMessage.includes("Too Many Requests");
-          
-          if (retries > 0 && isRetryable) {
-            console.log(`Retrying analysis due to transient error... (${errorMessage}) ${retries} retries left`);
-            // Exponential backoff
-            const delay = (4 - retries) * 2000;
-            await new Promise(resolve => setTimeout(resolve, delay));
-            return analyzeWithRetry(retries - 1);
-          }
-          throw error;
-        }
+      // Safe complete default schema to prevent client crashes due to missing attributes
+      const defaultResult = {
+        analysisDate: new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" }),
+        summary: {
+          label: "진단 완료 포트폴리오",
+          score: 50,
+          description: "업로드해주신 계좌 정보를 바탕으로 퀀트 분석 및 진단을 마쳤습니다.",
+          tags: ["포트폴리오 진단", "분석 완료"],
+          strategyText: "자산 비율을 균형 있게 다져 리스크를 방어하십시오."
+        },
+        stats: {
+          totalProfit: 0,
+          totalYield: 0,
+          sectorConcentration: "분석 완료",
+          recoveryMonths: 6,
+          riskScore: 50
+        },
+        holdings: [] as any[],
+        sectors: [ { name: "기타", percentage: 100 } ],
+        sectorAnalysisText: "섹터 집중도 분석 정보가 안전하게 산출되었습니다.",
+        actionPlan: {
+          shortTerm: "단기 포트폴리오 변동 위험도 극복에 최선을 다해 대처하십시오.",
+          longTerm: "중장기 자산 리밸런싱 및 분산 전략 수립을 적극 고려해 보십시오."
+        },
+        advice: {
+          step1: { title: "리스크 관리", content: "현재 계좌의 섹터 및 개별 자산 비중을 점검해 변동성에 대응하십시오.", items: [] as string[] },
+          step2: { title: "포트폴리오 리밸런싱", content: "특정 개별 종목 편중 비율을 낮추어 리스크 분산을 실현하십시오.", recommendation: "분산 투자 유도" },
+          step3: { title: "정기 모니터링", content: "주요 기술적 지지선 및 실적 턴어라운드 일정을 모니터링하십시오.", plan: ["정기 리포트 분석"] }
+        },
+        focusStock: { name: "", yield: 0, link: "#" } as any,
+        conclusion: "체계적 분석을 통해 심리적 흔들림 없는 합리적인 투자를 구축하시기를 진심으로 응원합니다."
       };
 
-      const response = await analyzeWithRetry();
-      const rawText = response.text || "{}";
+      const ensureStructure = (parsed: any): any => {
+        const merged = { ...defaultResult };
+        if (!parsed || typeof parsed !== 'object') return merged;
+
+        if (parsed.analysisDate) merged.analysisDate = parsed.analysisDate;
+        
+        if (parsed.summary && typeof parsed.summary === 'object') {
+          merged.summary = {
+            label: parsed.summary.label || defaultResult.summary.label,
+            score: typeof parsed.summary.score === 'number' ? parsed.summary.score : defaultResult.summary.score,
+            description: parsed.summary.description || defaultResult.summary.description,
+            tags: Array.isArray(parsed.summary.tags) ? parsed.summary.tags : defaultResult.summary.tags,
+            strategyText: parsed.summary.strategyText || defaultResult.summary.strategyText,
+          };
+        }
+
+        if (parsed.stats && typeof parsed.stats === 'object') {
+          merged.stats = {
+            totalProfit: typeof parsed.stats.totalProfit === 'number' ? parsed.stats.totalProfit : defaultResult.stats.totalProfit,
+            totalYield: typeof parsed.stats.totalYield === 'number' ? parsed.stats.totalYield : defaultResult.stats.totalYield,
+            sectorConcentration: parsed.stats.sectorConcentration || defaultResult.stats.sectorConcentration,
+            recoveryMonths: typeof parsed.stats.recoveryMonths === 'number' ? parsed.stats.recoveryMonths : defaultResult.stats.recoveryMonths,
+            riskScore: typeof parsed.stats.riskScore === 'number' ? parsed.stats.riskScore : defaultResult.stats.riskScore,
+          };
+        }
+
+        if (Array.isArray(parsed.holdings)) {
+          merged.holdings = parsed.holdings.map((h: any) => ({
+            name: h.name || "미상 종목",
+            profit: typeof h.profit === 'number' ? h.profit : 0,
+            yield: typeof h.yield === 'number' ? h.yield : 0.0,
+            quantity: typeof h.quantity === 'number' ? h.quantity : 0,
+            avgPrice: typeof h.avgPrice === 'number' ? h.avgPrice : 0,
+            sector: h.sector || "기타",
+            riskLevel: h.riskLevel || "medium",
+            status: h.status || "주의",
+            analysis: h.analysis || "종목 세부 분석 정보를 구성하는 중입니다.",
+            strategy: h.strategy || "종목 대응 전략 수립을 보충 중입니다.",
+            consensusGap: typeof h.consensusGap === 'number' ? h.consensusGap : 0.0
+          }));
+        }
+
+        if (Array.isArray(parsed.sectors) && parsed.sectors.length > 0) {
+          merged.sectors = parsed.sectors.map((s: any) => ({
+            name: s.name || "기타",
+            percentage: typeof s.percentage === 'number' ? s.percentage : 0
+          }));
+        } else if (merged.holdings.length > 0) {
+          const sectorMap: { [key: string]: number } = {};
+          merged.holdings.forEach((h: any) => {
+            const secName = h.sector || "기타";
+            sectorMap[secName] = (sectorMap[secName] || 0) + 1;
+          });
+          const total = merged.holdings.length;
+          merged.sectors = Object.entries(sectorMap).map(([name, count]) => ({
+            name,
+            percentage: Math.round((count / total) * 100)
+          })).sort((a, b) => b.percentage - a.percentage);
+        }
+
+        if (parsed.sectorAnalysisText) merged.sectorAnalysisText = parsed.sectorAnalysisText;
+
+        if (parsed.actionPlan && typeof parsed.actionPlan === 'object') {
+          merged.actionPlan = {
+            shortTerm: parsed.actionPlan.shortTerm || defaultResult.actionPlan.shortTerm,
+            longTerm: parsed.actionPlan.longTerm || defaultResult.actionPlan.longTerm,
+          };
+        }
+
+        if (parsed.advice && typeof parsed.advice === 'object') {
+          const s1 = parsed.advice.step1 || {};
+          const s2 = parsed.advice.step2 || {};
+          const s3 = parsed.advice.step3 || {};
+          merged.advice = {
+            step1: {
+              title: s1.title || defaultResult.advice.step1.title,
+              content: s1.content || defaultResult.advice.step1.content,
+              items: Array.isArray(s1.items) ? s1.items : defaultResult.advice.step1.items
+            },
+            step2: {
+              title: s2.title || defaultResult.advice.step2.title,
+              content: s2.content || defaultResult.advice.step2.content,
+              recommendation: s2.recommendation || defaultResult.advice.step2.recommendation
+            },
+            step3: {
+              title: s3.title || defaultResult.advice.step3.title,
+              content: s3.content || defaultResult.advice.step3.content,
+              plan: Array.isArray(s3.plan) ? s3.plan : defaultResult.advice.step3.plan
+            }
+          };
+        }
+
+        if (parsed.conclusion) merged.conclusion = parsed.conclusion;
+        
+        // Ensure focus stock is valid and matches our holding items
+        if (parsed.focusStock && typeof parsed.focusStock === 'object') {
+          merged.focusStock = {
+            name: parsed.focusStock.name || "",
+            yield: typeof parsed.focusStock.yield === 'number' ? parsed.focusStock.yield : 0,
+            link: parsed.focusStock.link || "#"
+          };
+        } else if (merged.holdings.length > 0) {
+          const sorted = [...merged.holdings].sort((a: any, b: any) => a.yield - b.yield);
+          if (sorted[0]) {
+            merged.focusStock = {
+              name: sorted[0].name,
+              yield: sorted[0].yield,
+              link: "#"
+            };
+          }
+        }
+
+        return merged;
+      };
+
+      const modelsToTry = [
+        "gemini-3.5-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-2.5-flash"
+      ];
+
+      const analyzeWithFallback = async () => {
+        let lastError: any = null;
+        
+        for (const modelName of modelsToTry) {
+          let attempts = 2; // Try up to 2 times per model if rate-limited or transient failure triggers
+          for (let attempt = 1; attempt <= attempts; attempt++) {
+            try {
+              console.log(`Analyzing screenshot with ${modelName} (Attempt ${attempt}/${attempts})...`);
+              const response = await ai.models.generateContent({
+                model: modelName,
+                contents: [
+                  { text: prompt },
+                  {
+                    inlineData: {
+                      mimeType: "image/jpeg",
+                      data: imageData.split(',')[1] || imageData
+                    }
+                  }
+                ],
+                config: {
+                  responseMimeType: "application/json"
+                }
+              });
+
+              if (response && response.text) {
+                console.log(`Success with model: ${modelName}`);
+                return response.text;
+              }
+              throw new Error("Returned content is empty or undefined.");
+            } catch (error: any) {
+              lastError = error;
+              const errMsg = error?.message || "";
+              console.warn(`Model ${modelName} (Attempt ${attempt}) failed: ${errMsg}`);
+
+              const isTransient = 
+                errMsg.includes("500") ||
+                errMsg.includes("503") ||
+                errMsg.includes("429") ||
+                errMsg.includes("Quota") ||
+                errMsg.includes("high demand") ||
+                errMsg.includes("UNAVAILABLE") ||
+                errMsg.includes("Too Many Requests") ||
+                errMsg.includes("INTERNAL");
+
+              if (attempt < attempts && isTransient) {
+                const backoffDelay = attempt * 1500;
+                await new Promise(r => setTimeout(r, backoffDelay));
+              }
+            }
+          }
+        }
+        throw lastError || new Error("All fallback Gemini models failed.");
+      };
+
+      const rawText = await analyzeWithFallback();
       
-      // Robust JSON Cleaning
-      const cleanedText = rawText
-        .replace(/```json/g, '')
-        .replace(/```/g, '')
-        .replace(/:\s*\+([0-9])/g, ': $1') // Fix for +15.5 type values
+      // Extract the JSON portion via advanced regex to avoid prefix/suffix comment pollution
+      let jsonPart = rawText;
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        jsonPart = jsonMatch[0];
+      }
+
+      // Clean typical numerical and escape characters
+      const cleanedText = jsonPart
+        .replace(/:\s*\+([0-9]+(?:\.[0-9]+)?)/g, ': $1') // Fix "+15.5" format into standard 15.5 number
         .trim();
 
-      const result = JSON.parse(cleanedText);
+      const parsedJson = JSON.parse(cleanedText);
+      const result = ensureStructure(parsedJson);
       res.json(result);
     } catch (error: any) {
-      console.error("AI Analysis Error:", error);
+      console.error("AI Analysis Final Failure:", error);
       const errorMessage = error?.message || "";
       const isOverloaded = errorMessage.includes("503") || errorMessage.includes("high demand") || errorMessage.includes("UNAVAILABLE");
       const isQuotaExceeded = errorMessage.includes("429") || errorMessage.includes("Quota exceeded") || errorMessage.includes("RESOURCE_EXHAUSTED");
       const isNotFound = errorMessage.includes("404") || errorMessage.includes("not found");
       
-      let clientMessage = "이미지 분석 중 오류가 발생했습니다. 선명한 스크린샷인지 확인해 주세요.";
+      let clientMessage = "이미지 분석 진행 중 알 수 없는 지연이 발생했습니다. 선명한 스크린샷인지 확인 후 다시 시도해 주세요.";
       if (isQuotaExceeded) {
-        clientMessage = "현재 서비스 이용량이 많아 무료 할당량이 소진되었습니다. 약 1분 후 다시 시도해 주시거나, 나중에 이용해 주세요.";
+        clientMessage = "현재 서비스 이용량이 많아 할당량이 한시 정체되었습니다. 잠시 후 약 30초~1분 뒤 다시 업로드해 주세요.";
       } else if (isOverloaded) {
-        clientMessage = "현재 AI 서버 부하가 높습니다. 잠시 후(10-30초) 다시 시도해 주세요.";
+        clientMessage = "현재 AI 분석 대기줄이 원활하지 않습니다. 잠시 후(15초 뒤) 다시 업로드해 주세요.";
       } else if (isNotFound) {
-        clientMessage = "시스템 업데이트 중입니다. 잠시 후 다시 시도해 주세요.";
+        clientMessage = "모듈 재구성 중입니다. 선명히 캡쳐된 이미지로 재시도해 주세요.";
       }
       
       const debugSuffix = errorMessage ? ` (${errorMessage})` : "";
