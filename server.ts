@@ -94,7 +94,7 @@ async function startServer() {
       const analyzeWithRetry = async (retries = 3) => {
         try {
           const response = await ai.models.generateContent({
-            model: "gemini-3.5-flash",
+            model: "gemini-3.1-flash-lite",
             contents: [
               { text: prompt },
               {

@@ -8,14 +8,47 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
-import { 
-  PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip, 
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Legend 
-} from 'recharts';
 import { DiagnosisResult, Holding } from './types';
 import { cn } from '@/lib/utils';
 
 const COLORS = ['#DC2626', '#334155', '#475569', '#64748b', '#94a3b8'];
+
+function CustomDonutChart({ data, colors }: { data: { name: string; percentage: number }[]; colors: string[] }) {
+  let accumulatedPercent = 0;
+  return (
+    <svg viewBox="0 0 100 100" className="w-56 h-56 select-none sm:w-64 sm:h-64">
+      {data.map((sector, index) => {
+        const percent = sector.percentage;
+        const color = colors[index % colors.length];
+        
+        const radius = 35;
+        const circumference = 2 * Math.PI * radius;
+        const strokeDasharray = `${circumference} ${circumference}`;
+        const strokeDashoffset = circumference - (percent / 100) * circumference;
+        const rotation = (accumulatedPercent / 100) * 360 - 90;
+        
+        accumulatedPercent += percent;
+        
+        return (
+          <circle
+            key={sector.name}
+            cx="50"
+            cy="50"
+            r={radius}
+            fill="transparent"
+            stroke={color}
+            strokeWidth="12"
+            strokeDasharray={strokeDasharray}
+            strokeDashoffset={strokeDashoffset}
+            transform={`rotate(${rotation} 50 50)`}
+            className="transition-all duration-300 hover:stroke-[14] cursor-pointer"
+            style={{ transformOrigin: "50px 50px" }}
+          />
+        );
+      })}
+    </svg>
+  );
+}
 
 const DUMMY_DATA: DiagnosisResult = {
   analysisDate: "2026년 5월 19일",
@@ -184,32 +217,32 @@ export default function App() {
         본 서비스는 통계적 데이터 기반 투자 참고 리포트이며, 자본시장법상 특정 종목 권유가 아닙니다.
       </div>
 
-      <header className="fixed top-8 left-0 right-0 z-50 px-4">
-        <div className="max-w-7xl mx-auto glass rounded-2xl h-14 flex items-center justify-between px-6 border border-slate-200">
-          <div className="flex items-center gap-3">
+      <header className="fixed top-0 sm:top-4 left-0 right-0 z-50 px-0 sm:px-4">
+        <div className="max-w-7xl mx-auto bg-white/95 backdrop-blur-md sm:rounded-2xl h-14 sm:h-16 flex items-center justify-between px-4 sm:px-6 border-b sm:border border-slate-200/80 shadow-sm">
+          <div className="flex items-center gap-2.5">
             <div className="bg-red-600 p-1.5 rounded-lg shadow-lg shadow-red-500/20 shrink-0">
               <TrendingUp className="w-4 h-4 text-white" />
             </div>
-            <h1 className="text-lg font-black tracking-tight text-slate-800 break-keep">
+            <h1 className="text-base sm:text-lg font-black tracking-tight text-slate-900 break-keep select-none">
               스탁 인사이더
             </h1>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             {result && (
               <Button 
                 variant="ghost" 
                 size="sm" 
                 onClick={() => setResult(null)} 
-                className="rounded-full text-xs font-bold hover:bg-red-50 text-slate-500 hover:text-red-600 transition-colors"
+                className="rounded-full text-xs font-bold hover:bg-slate-100 text-slate-600 transition-colors px-3 py-1.5"
               >
-                <Home className="w-3.5 h-3.5 mr-2" /> 처음으로
+                <Home className="w-3.5 h-3.5 mr-1.5" /> 처음으로
               </Button>
             )}
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-32">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-20 sm:pt-28">
         <AnimatePresence mode="wait">
           {!result ? (
             <motion.div
@@ -399,32 +432,14 @@ export default function App() {
                     <Badge variant="ghost" className="text-[10px] font-black text-red-600 animate-pulse">Distribution Analysis</Badge>
                   </div>
                   <CardContent className="p-10 sm:p-16 flex flex-col lg:flex-row items-center justify-between gap-12">
-                    <div className="w-full lg:w-1/2 h-72 relative">
+                    <div className="w-full lg:w-1/2 h-72 relative flex items-center justify-center">
                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                           <div className="bg-slate-50/50 p-6 rounded-2xl border border-slate-100 flex flex-col justify-center shadow-inner text-center">
-                            <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest leading-none mb-3">Main Sector</div>
+                            <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest leading-none mb-3">대표 섹터</div>
                             <div className="text-2xl font-black text-slate-800">{result.sectors[0].percentage}%</div>
                           </div>
                        </div>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <RePieChart>
-                          <Pie
-                            data={result.sectors}
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={80}
-                            outerRadius={110}
-                            paddingAngle={8}
-                            dataKey="percentage"
-                            stroke="none"
-                          >
-                            {result.sectors.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip />
-                        </RePieChart>
-                      </ResponsiveContainer>
+                       <CustomDonutChart data={result.sectors} colors={COLORS} />
                     </div>
                     <div className="w-full lg:w-1/2 space-y-8">
                       <div className="grid grid-cols-2 gap-x-12 gap-y-6">
